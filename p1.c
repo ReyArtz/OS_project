@@ -7,6 +7,7 @@
 #include <string.h>
 #include <dirent.h>
 
+#define PATH_MAX 4096
 
 void parseDirectory(const char* dirp){
     
@@ -19,6 +20,7 @@ void parseDirectory(const char* dirp){
         perror("error opening");
         return;
     }
+    printf("snapshot :%s\n",dirp);
 
     while((entry=readdir(dir))!=NULL){
         char fullPath[PATH_MAX];
@@ -41,6 +43,7 @@ void parseDirectory(const char* dirp){
         
 
     }
+    closedir(dir);
 
 }
 
@@ -48,8 +51,12 @@ void parseDirectory(const char* dirp){
 int main(int argc, char* argv[]){
 
     if(argc!=2){
-        return 0;
+        fprintf(stderr,"%s",argv[0]);
+        return EXIT_FAILURE;
     }
+
+    parseDirectory(argv[1]);
+    return EXIT_SUCCESS;
 
     
 }
