@@ -9,7 +9,16 @@
 
 #define PATH_MAX 4096
 
-void parseDirectory(const char* dirp){
+struct Snapshot{
+    char name[PATH_MAX];
+    mode_t permission;
+    off_t size;
+    char location[PATH_MAX];
+    ino_t inode;
+}
+
+
+void parseDirectory(const char* dirp, Snapshot *snapshot,int *count){
     
     struct dirent *entry;
     struct stat info;
@@ -35,12 +44,18 @@ void parseDirectory(const char* dirp){
             continue;
         }
 
-        printf("Name: %s",entry->d_name);
-        printf("Size %ld",info.st_size);
-        printf("Permissions: %o",info.st_mode &(S_IRWXU | S_IRWXG | S_IRWXO));
-
-
+        printf("Name: %s\n",entry->d_name);
+        printf("Size %ld\n",info.st_size);
+        printf("Permissions: %o\n",info.st_mode &(S_IRWXU | S_IRWXG | S_IRWXO));
+        printf("----------------------\n");
         
+
+        strcpy((*snapshot)[*count].location,fullPath);
+        strcpy((*snapshot)[*count].name,entry->d_name);
+        (*snapshot)[*count].size=info.st_size;
+        (*snapshot)[*count].permission=info.st_mode &(S_IRWXU | S_IRWXG | S_IRWXO);
+        (*snapshot)[*count].inode=info.st_ino;
+        (*count);
 
     }
     closedir(dir);
