@@ -24,7 +24,7 @@ void parseDirectory(const char* dirp){
 
     while((entry=readdir(dir))!=NULL){
         char fullPath[PATH_MAX];
-        snprintf(fullPath,sizeof(fullPath),"%s%s",dirp,entry->d_name);
+        snprintf(fullPath,sizeof(fullPath),"%s/%s",dirp,entry->d_name);
 
         if(lstat(fullPath, &info)==-1){
             perror("error get file info");
