@@ -6,6 +6,8 @@
 #include <sys/types.h>
 #include <string.h>
 #include <dirent.h>
+#include <time.h>
+
 
 #define PATH_MAX 4096
 
@@ -126,16 +128,33 @@ void compare(struct Snapshot *snap1, struct Snapshot *snap2, int count1, int cou
     }
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char** argv) {
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <directory_path>\n", argv[0]);
         return EXIT_FAILURE;
     }
 
-    struct Snapshot snaps[PATH_MAX];
+    struct Snapshot snaps[500];
     int count = 0;
 
-    parseDirectory(argv[1], snaps, &count);
-    savesnapshot("snapshot.txt", snaps, count);
-    return EXIT_SUCCESS;
+    FILE* snap1=fopen("snapshot.txt","r");
+    if(snap1 != NULL){
+        char line[600];
+
+        while(fgets(line,sizeof(line),snap1)){
+            sscanf(line,"%s|%s|%ld|%o|%lu|%ld\n",snaps[count].name,snaps[count].location,&snaps[count].size,&snaps[count].permission,
+                                                    &snaps[count].inode,&snaps[count].modif_time);
+            count++;
+        }
+        fclose(snap1);
+    }
+    
+    struct Snapshot snaps2[500];
+    int count2=0;
+
+    parseDirectory(argv[1], snaps2, &count2);
+    savesnapshot("snapshot.txt", snaps2, count2);
+
+    compare(snaps,snaps2,count,count2);
+    return 0;
 }
