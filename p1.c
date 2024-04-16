@@ -7,9 +7,10 @@
 #include <string.h>
 #include <dirent.h>
 #include <time.h>
-
+#include <sys/wait.h>
 
 #define PATH_MAX 4096
+#define MAX_CHILDREN 10
 
 struct Snapshot {
     char name[PATH_MAX];
@@ -20,7 +21,7 @@ struct Snapshot {
     time_t modif_time;
 };
 
-void parseDirectory(const char* dirp, struct  Snapshot *snapshot, int *count) {
+void parseDirectory(const char* dirp, struct Snapshot *snapshot, int *count) {
     struct dirent *entry;
     struct stat info;
 
@@ -76,49 +77,57 @@ void savesnapshot(const char* filename , struct Snapshot *snapshot, int count) {
 void compare(struct Snapshot *snap1, struct Snapshot *snap2, int count1, int count2) {
     int rmv = 0, add = 0, move = 0;
 
-    //for remove
     for (int i = 0; i < count1; i++) {
-        int flag = 0;
+        int found = 0; 
         for (int j = 0; j < count2; j++) {
             if (snap1[i].inode == snap2[j].inode) {
-                flag = 1;
-                break;
+                found = 1;
+                
+                if (strcmp(snap1[i].location, snap2[j].location) != 0 ||
+                    snap1[i].size != snap2[j].size ||
+                    snap1[i].modif_time != snap2[j].modif_time ||
+                    snap1[i].permission != snap2[j].permission) {
+                    // Update old snapshot with new information
+                    strcpy(snap1[i].location, snap2[j].location);
+                    strcpy(snap1[i].name, snap2[j].name);
+                    snap1[i].size = snap2[j].size;
+                    snap1[i].modif_time = snap2[j].modif_time;
+                    snap1[i].permission = snap2[j].permission;
+                    printf("Updated: %s\n", snap1[i].location);
+                }
+                break; 
             }
         }
-        if (!flag) {
-            printf("Remove: %s\n", snap1[i].location);
+        if (!found) {
+            printf("Removed: %s\n", snap1[i].location);
             rmv = 1;
         }
     }
 
-    //add
+    // added entries
     for (int i = 0; i < count2; i++) {
-        int flag = 0;
+        int found = 0; 
         for (int j = 0; j < count1; j++) {
             if (snap2[i].inode == snap1[j].inode) {
-                flag = 1;
+                found = 1;
                 break;
             }
         }
-        if (!flag) {
+        if (!found) {
             printf("Added: %s\n", snap2[i].location);
             add = 1;
         }
     }
 
-    //for moved or renamed
+    // moved or renamed entries
     for (int i = 0; i < count1; i++) {
-        if (S_ISDIR(snap1[i].permission)) {
-            int flag = 1;
-            for (int j = 0; j < count2; j++) {
-                if (snap1[i].inode == snap2[j].inode && strcmp(snap1[i].location, snap2[j].location) != 0) {
-                    printf("Moved or renamed: %s -> %s\n", snap1[i].location, snap2[j].location);
-                    flag = 1;
-                    break;
-                }
-            }
-            if (flag) {
+        int found = 0;
+        for (int j = 0; j < count2; j++) {
+            if (snap1[i].inode == snap2[j].inode && strcmp(snap1[i].location, snap2[j].location) != 0) {
+                found = 1;
+                printf("Moved or renamed: %s -> %s\n", snap1[i].location, snap2[j].location);
                 move = 1;
+                break;
             }
         }
     }
@@ -128,46 +137,78 @@ void compare(struct Snapshot *snap1, struct Snapshot *snap2, int count1, int cou
     }
 }
 
-<<<<<<< HEAD
-int main(int argc, char* argv[]) {
-=======
 int main(int argc, char** argv) {
->>>>>>> refs/remotes/origin/main
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s <directory_path>\n", argv[0]);
+    if (argc < 3) {
+        fprintf(stderr, "Usage: %s -o output_dir dir1 dir2 dir3 ... dirN\n", argv[0]);
         return EXIT_FAILURE;
     }
 
-<<<<<<< HEAD
-    struct Snapshot snaps[PATH_MAX];
-    int count = 0;
+    char* output_dir = NULL;
+    int directories = argc - 3;
+    int status;
+    pid_t child_pid[10];
 
-    parseDirectory(argv[1], snaps, &count);
-    savesnapshot("snapshot.txt", snaps, count);
-    return EXIT_SUCCESS;
-=======
+    
+    if (strcmp(argv[1], "-o") != 0) {
+        fprintf(stderr, "Usage: %s -o output_dir dir1 dir2 dir3 ... dirN\n", argv[0]);
+        return EXIT_FAILURE;
+    } else {
+        output_dir = argv[2];
+    }
+    
+    for (int i = 0; i < directories && i < MAX_CHILDREN; i++) {
+        child_pid[i] = fork();
+        
+        if (child_pid[i] < 0) {
+            perror("Fork failed");
+            return EXIT_FAILURE;
+        } else if (child_pid[i] == 0) {  
+            printf("Child process for directory %s started with PID %d\n", argv[i + 3], getpid());
+
+            
+            struct Snapshot snaps[500];
+            int count = 0;
+            parseDirectory(argv[i + 3], snaps, &count);
+            savesnapshot(output_dir, snaps, count);
+
+            printf("Snapshot for Directory %s created successfully.\n", argv[i + 3]);
+
+            
+            exit(EXIT_SUCCESS);
+        }
+    }
+
+    
+    for (int i = 0; i < directories && i < MAX_CHILDREN; i++) {
+        waitpid(child_pid[i], &status, 0);
+        if (WIFEXITED(status)) {
+            printf("Child Process terminated with PID %d and exit code %d.\n", child_pid[i], WEXITSTATUS(status));
+        }
+    }
+
+    
+    printf("Comparing snapshots...\n");
     struct Snapshot snaps[500];
+    struct Snapshot snaps2[500];
     int count = 0;
+    int count2 = 0;
 
-    FILE* snap1=fopen("snapshot.txt","r");
-    if(snap1 != NULL){
+    FILE* snap1 = fopen("snapshot.txt", "r");
+    if (snap1 != NULL) {
         char line[600];
 
-        while(fgets(line,sizeof(line),snap1)){
-            sscanf(line,"%s|%s|%ld|%o|%lu|%ld\n",snaps[count].name,snaps[count].location,&snaps[count].size,&snaps[count].permission,
-                                                    &snaps[count].inode,&snaps[count].modif_time);
+        while (fgets(line, sizeof(line), snap1)) {
+            sscanf(line, "%s|%s|%ld|%o|%lu|%ld\n", snaps[count].name, snaps[count].location, &snaps[count].size, &snaps[count].permission,
+                &snaps[count].inode, &snaps[count].modif_time);
             count++;
         }
         fclose(snap1);
     }
-    
-    struct Snapshot snaps2[500];
-    int count2=0;
 
-    parseDirectory(argv[1], snaps2, &count2);
-    savesnapshot("snapshot.txt", snaps2, count2);
+    parseDirectory(output_dir, snaps2, &count2);
 
-    compare(snaps,snaps2,count,count2);
-    return 0;
->>>>>>> refs/remotes/origin/main
+   
+    compare(snaps, snaps2, count, count2);
+
+    return EXIT_SUCCESS;
 }
