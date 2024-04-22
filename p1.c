@@ -146,7 +146,7 @@ int main(int argc, char** argv) {
     char* output_dir = NULL;
     int directories = argc - 3;
     int status;
-    pid_t child_pid[10];
+    pid_t child_pid[MAX_CHILDREN];
 
     
     if (strcmp(argv[1], "-o") != 0) {
