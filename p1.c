@@ -137,26 +137,58 @@ void compare(struct Snapshot *snap1, struct Snapshot *snap2, int count1, int cou
     }
 }
 
+void isodir(const char* dir, const char* isolated_space_dir, int pipe){
+    struct Snapshot snaps[500];
+    int count=0;
+
+    parseDirectory(dir, snaps,&count);
+    for(int i=0;i<count;i++){
+        if(snaps[i].permission==0){
+            printf("Analyze and isolate the file %s\n",snaps[i].location);
+            char cmd[550];
+            sprintf(cmd," verify for malicious: %s\n",snaps[i].location);
+            int res=system(cmd);
+            write(pipe,res,sizeof(res));
+            if(res==0){
+                char mvcmd[600];
+                sprintf(mvcmd,"move %s %s",snaps[i].location,isolated_space_dir);
+                system(mvcmd);
+            }
+            else{
+                printf("File %s is safe ",snaps[i].location);
+            }
+        }
+    }
+
+}
+
 int main(int argc, char** argv) {
-    if (argc < 3) {
-        fprintf(stderr, "Usage: %s -o output_dir dir1 dir2 dir3 ... dirN\n", argv[0]);
+    if (argc < 5|| strcmp(argv[1], "-o") != 0) {
+        fprintf(stderr, "Usage: %s -o output_dir -s isolated_space_dir dir1 dir2 dir3 ... dirN\n", argv[0]);
         return EXIT_FAILURE;
     }
 
     char* output_dir = NULL;
-    int directories = argc - 3;
+    int directories = argc - 5;
+    char* isolated_space_dir=NULL;
     int status;
-    pid_t child_pid[MAX_CHILDREN];
+    pid_t child_pid[10];
+    int pipe_fd[2];
+
+    if(pipe(pipe_fd)==-1){
+        perror("Pipe creation failed");
+        return EXIT_FAILURE;
+    }
 
     
-    if (strcmp(argv[1], "-o") != 0) {
-        fprintf(stderr, "Usage: %s -o output_dir dir1 dir2 dir3 ... dirN\n", argv[0]);
+    if (strcmp(argv[3], "-s") != 0) {
+        fprintf(stderr, "Usage: %s -o output_dir -s isolated_space_dir dir1 dir2 dir3 ... dirN\n", argv[0]);
         return EXIT_FAILURE;
     } else {
-        output_dir = argv[2];
+        isolated_space_dir=argv[4];
     }
     
-    for (int i = 0; i < directories && i < MAX_CHILDREN; i++) {
+    for (int i = 0; i < directories && i < 10; i++) {
         child_pid[i] = fork();
         
         if (child_pid[i] < 0) {
@@ -179,7 +211,7 @@ int main(int argc, char** argv) {
     }
 
     
-    for (int i = 0; i < directories && i < MAX_CHILDREN; i++) {
+    for (int i = 0; i < directories && i < 10; i++) {
         waitpid(child_pid[i], &status, 0);
         if (WIFEXITED(status)) {
             printf("Child Process terminated with PID %d and exit code %d.\n", child_pid[i], WEXITSTATUS(status));
