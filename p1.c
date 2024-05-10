@@ -12,15 +12,6 @@
 #define PATH_MAX 4096
 #define MAX_CHILDREN 10
 
-enum DifferenceType {
-    NO_DIFFERENCE,
-    FILE_ADDED,
-    FILE_DELETED,
-    FILE_UPDATED,
-    FILE_MOVED,
-    FILE_RENAMED
-};
-
 struct Snapshot {
     char name[PATH_MAX];
     mode_t permission;
@@ -66,7 +57,7 @@ void parseDirectory(const char* dirp, struct Snapshot *snapshot, int *count) {
     closedir(dir);
 }
 
-void saveSnapshot(const char* filename , struct Snapshot *snapshot, int count) {
+void savesnapshot(const char* filename , struct Snapshot *snapshot, int count) {
     FILE* file = fopen(filename, "w");
 
     if (file == NULL) {
@@ -75,17 +66,16 @@ void saveSnapshot(const char* filename , struct Snapshot *snapshot, int count) {
     }
 
     for (int i = 0; i < count; ++i) {
-        fprintf(file, "%s\n%o\n%ld\n%lu\n%ld\n%s%s%s", snapshot[i].location, snapshot[i].permission, 
-                (long)snapshot[i].size, (unsigned long)snapshot[i].inode, 
-                (long)snapshot[i].modif_time, ctime(&snapshot[i].modif_time),
-                ctime(&snapshot[i].modif_time), ctime(&snapshot[i].modif_time));
+        fprintf(file, "%s|%s|%ld|%o|%lu\n", snapshot[i].name, snapshot[i].location, 
+                (long)snapshot[i].size, snapshot[i].permission, 
+                (unsigned long)snapshot[i].inode);
     }
 
     fclose(file);
 }
 
 void compare(struct Snapshot *snap1, struct Snapshot *snap2, int count1, int count2) {
-    int added = 0, deleted = 0, updated = 0, moved = 0, renamed = 0;
+    int rmv = 0, add = 0, move = 0;
 
     for (int i = 0; i < count1; i++) {
         int found = 0; 
@@ -97,7 +87,12 @@ void compare(struct Snapshot *snap1, struct Snapshot *snap2, int count1, int cou
                     snap1[i].size != snap2[j].size ||
                     snap1[i].modif_time != snap2[j].modif_time ||
                     snap1[i].permission != snap2[j].permission) {
-                    updated++;
+                    // Update old snapshot with new information
+                    strcpy(snap1[i].location, snap2[j].location);
+                    strcpy(snap1[i].name, snap2[j].name);
+                    snap1[i].size = snap2[j].size;
+                    snap1[i].modif_time = snap2[j].modif_time;
+                    snap1[i].permission = snap2[j].permission;
                     printf("Updated: %s\n", snap1[i].location);
                 }
                 break; 
@@ -105,7 +100,7 @@ void compare(struct Snapshot *snap1, struct Snapshot *snap2, int count1, int cou
         }
         if (!found) {
             printf("Removed: %s\n", snap1[i].location);
-            deleted++;
+            rmv = 1;
         }
     }
 
@@ -120,7 +115,7 @@ void compare(struct Snapshot *snap1, struct Snapshot *snap2, int count1, int cou
         }
         if (!found) {
             printf("Added: %s\n", snap2[i].location);
-            added++;
+            add = 1;
         }
     }
 
@@ -131,93 +126,99 @@ void compare(struct Snapshot *snap1, struct Snapshot *snap2, int count1, int cou
             if (snap1[i].inode == snap2[j].inode && strcmp(snap1[i].location, snap2[j].location) != 0) {
                 found = 1;
                 printf("Moved or renamed: %s -> %s\n", snap1[i].location, snap2[j].location);
-                moved++;
+                move = 1;
                 break;
             }
         }
     }
 
-    if (added == 0 && deleted == 0 && updated == 0 && moved == 0 && renamed == 0) {
+    if (!rmv && !add && !move) {
         printf("NO CHANGES\n");
     }
 }
 
-void isolateDirectory(const char* dir, const char* isolated_space_dir, int pipe) {
+void isodir(const char* dir, const char* isolated_space_dir, int pipe){
     struct Snapshot snaps[500];
-    int count = 0;
+    int count=0;
 
-    parseDirectory(dir, snaps, &count);
-
-    for (int i = 0; i < count; i++) {
-        if (snaps[i].permission == 0) {
-            printf("Analyze and isolate the file %s\n", snaps[i].location);
+    parseDirectory(dir, snaps,&count);
+    for(int i=0;i<count;i++){
+        if(snaps[i].permission==0){
+            printf("Analyze and isolate the file %s\n",snaps[i].location);
             char cmd[550];
-            sprintf(cmd, " verify for malicious: %s\n", snaps[i].location);
-            int res = system(cmd);
-            write(pipe, &res, sizeof(res));
-            if (res == 0) {
+            sprintf(cmd," verify for malicious: %s\n",snaps[i].location);
+            int res=system(cmd);
+            write(pipe,res,sizeof(res));
+            if(res==0){
                 char mvcmd[600];
-                sprintf(mvcmd, "move %s %s", snaps[i].location, isolated_space_dir);
+                sprintf(mvcmd,"move %s %s",snaps[i].location,isolated_space_dir);
                 system(mvcmd);
-            } else {
-                printf("File %s is safe\n", snaps[i].location);
+            }
+            else{
+                printf("File %s is safe ",snaps[i].location);
             }
         }
     }
+
 }
 
 int main(int argc, char** argv) {
-    if (argc < 5 || strcmp(argv[1], "-o") != 0) {
+    if (argc < 5|| strcmp(argv[1], "-o") != 0) {
         fprintf(stderr, "Usage: %s -o output_dir -s isolated_space_dir dir1 dir2 dir3 ... dirN\n", argv[0]);
         return EXIT_FAILURE;
     }
 
     char* output_dir = NULL;
     int directories = argc - 5;
-    char* isolated_space_dir = NULL;
+    char* isolated_space_dir=NULL;
     int status;
-    pid_t child_pid[MAX_CHILDREN];
+    pid_t child_pid[10];
     int pipe_fd[2];
 
-    if (pipe(pipe_fd) == -1) {
+    if(pipe(pipe_fd)==-1){
         perror("Pipe creation failed");
         return EXIT_FAILURE;
     }
 
+    
     if (strcmp(argv[3], "-s") != 0) {
         fprintf(stderr, "Usage: %s -o output_dir -s isolated_space_dir dir1 dir2 dir3 ... dirN\n", argv[0]);
         return EXIT_FAILURE;
     } else {
-        isolated_space_dir = argv[4];
+        isolated_space_dir=argv[4];
     }
-
-    for (int i = 0; i < directories && i < MAX_CHILDREN; i++) {
+    
+    for (int i = 0; i < directories && i < 10; i++) {
         child_pid[i] = fork();
-
+        
         if (child_pid[i] < 0) {
             perror("Fork failed");
             return EXIT_FAILURE;
         } else if (child_pid[i] == 0) {  
-            printf("Child process for directory %s started with PID %d\n", argv[i + 5], getpid());
+            printf("Child process for directory %s started with PID %d\n", argv[i + 3], getpid());
 
+            
             struct Snapshot snaps[500];
             int count = 0;
-            parseDirectory(argv[i + 5], snaps, &count);
-            saveSnapshot(output_dir, snaps, count);
+            parseDirectory(argv[i + 3], snaps, &count);
+            savesnapshot(output_dir, snaps, count);
 
-            printf("Snapshot for Directory %s created successfully.\n", argv[i + 5]);
+            printf("Snapshot for Directory %s created successfully.\n", argv[i + 3]);
 
+            
             exit(EXIT_SUCCESS);
         }
     }
 
-    for (int i = 0; i < directories && i < MAX_CHILDREN; i++) {
+    
+    for (int i = 0; i < directories && i < 10; i++) {
         waitpid(child_pid[i], &status, 0);
         if (WIFEXITED(status)) {
             printf("Child Process terminated with PID %d and exit code %d.\n", child_pid[i], WEXITSTATUS(status));
         }
     }
 
+    
     printf("Comparing snapshots...\n");
     struct Snapshot snaps[500];
     struct Snapshot snaps2[500];
@@ -229,8 +230,8 @@ int main(int argc, char** argv) {
         char line[600];
 
         while (fgets(line, sizeof(line), snap1)) {
-            sscanf(line, "%s\n%o\n%ld\n%lu\n%ld\n%*s", snaps[count].location, &snaps[count].permission, 
-                &snaps[count].size, &snaps[count].inode, &snaps[count].modif_time);
+            sscanf(line, "%s|%s|%ld|%o|%lu|%ld\n", snaps[count].name, snaps[count].location, &snaps[count].size, &snaps[count].permission,
+                &snaps[count].inode, &snaps[count].modif_time);
             count++;
         }
         fclose(snap1);
@@ -238,6 +239,7 @@ int main(int argc, char** argv) {
 
     parseDirectory(output_dir, snaps2, &count2);
 
+   
     compare(snaps, snaps2, count, count2);
 
     return EXIT_SUCCESS;
